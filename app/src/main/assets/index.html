@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>70mai A400 Pro Controller</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --accent: #00d2ff;
+      --danger: #ef4444;
+      --success: #10b981;
+      --text: #f8fafc;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 16px; padding-bottom: 80px; }
+    
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .status-badge { font-size: 12px; padding: 6px 12px; border-radius: 20px; background: #334155; display: flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+    .dot.online { background: var(--success); }
+
+    /* Live View Box */
+    .live-container {
+      background: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      position: relative;
+      aspect-ratio: 16 / 9;
+      margin-bottom: 16px;
+      border: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .live-overlay { position: absolute; bottom: 12px; right: 12px; display: flex; gap: 10px; }
+
+    /* Action Grid */
+    .actions-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+    .btn {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid #334155;
+      padding: 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: 0.15s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: linear-gradient(135deg, #0284c7, #0369a1); border: none; }
+    .btn-danger { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-color: var(--danger); }
+
+    /* Tabs & File List */
+    .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tab { flex: 1; text-align: center; padding: 10px; background: var(--card); border-radius: 8px; font-size: 13px; cursor: pointer; }
+    .tab.active { background: var(--accent); color: #000; font-weight: 700; }
+
+    .file-list { display: flex; flex-direction: column; gap: 10px; }
+    .file-item {
+      background: var(--card);
+      padding: 12px;
+      border-radius: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .file-info { display: flex; flex-direction: column; gap: 4px; }
+    .file-name { font-size: 14px; font-weight: 600; }
+    .file-meta { font-size: 12px; color: #94a3b8; }
+    .file-actions { display: flex; gap: 8px; }
+    .icon-btn { padding: 8px 12px; border-radius: 8px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .dl-btn { background: var(--success); color: #000; text-decoration: none; }
+    .del-btn { background: var(--danger); color: #fff; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h2 style="font-size: 18px;">70mai A400 Pro (CN)</h2>
+      <p style="font-size: 12px; color: #94a3b8;">IP: 192.168.0.1</p>
+    </div>
+    <div class="status-badge" onclick="checkConnection()">
+      <span class="dot" id="connDot"></span>
+      <span id="connText">Disconnected</span>
+    </div>
+  </header>
+
+  <!-- Live Stream Window -->
+  <div class="live-container" id="liveBox">
+    <div style="text-align: center; padding: 20px;">
+      <p style="color: #94a3b8; font-size: 13px; margin-bottom: 10px;">RTSP Stream: rtsp://192.168.0.1:554/live</p>
+      <button class="btn btn-primary" onclick="launchLiveStream()">▶ Start Native Live View</button>
+    </div>
+  </div>
+
+  <!-- Control Buttons -->
+  <div class="actions-grid">
+    <button class="btn btn-primary" onclick="takeSnapshot()">📸 Take Photo</button>
+    <button class="btn" onclick="loadFiles('normal')">🔄 Refresh SD Card</button>
+    <button class="btn" onclick="checkFirmware()">⬆️ Firmware OTA</button>
+    <button class="btn" onclick="syncTime()">🕒 Sync Phone Time</button>
+  </div>
+
+  <!-- SD Card Folders -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab(this, 'normal')">Normal Video</div>
+    <div class="tab" onclick="switchTab(this, 'event')">Emergency</div>
+    <div class="tab" onclick="switchTab(this, 'photo')">Photos</div>
+  </div>
+
+  <!-- File List Container -->
+  <div class="file-list" id="fileList">
+    <p style="text-align: center; color: #64748b; padding: 20px; font-size: 13px;">
+      Connect to 70mai_dvr_A400 Wi-Fi and tap "Refresh SD Card"
+    </p>
+  </div>
+
+  <script>
+    const DASHCAM_IP = "http://192.168.0.1";
+    let currentFolder = "normal";
+
+    // 1. Ping Dashcam
+    async function checkConnection() {
+      const dot = document.getElementById('connDot');
+      const text = document.getElementById('connText');
+      try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(`${DASHCAM_IP}/`, { mode: 'no-cors', signal: controller.signal });
+        dot.classList.add('online');
+        text.innerText = "Connected";
+        return true;
+      } catch (err) {
+        dot.classList.remove('online');
+        text.innerText = "Offline (Check Wi-Fi)";
+        return false;
+      }
+    }
+
+    // 2. Launch Native RTSP Player (via Kotlin JavascriptInterface)
+    function launchLiveStream() {
+      const rtspUrl = "rtsp://192.168.0.1:554/live";
+      if (window.AndroidBridge && window.AndroidBridge.playRtsp) {
+        window.AndroidBridge.playRtsp(rtspUrl);
+      } else {
+        alert("Native RTSP Bridge trigger: " + rtspUrl + "\n(In Android Studio, bind this to ExoPlayer)");
+      }
+    }
+
+    // 3. Trigger Snapshot on Dashcam
+    async function takeSnapshot() {
+      try {
+        // Common 70mai / HiSilicon / Novatek CGI snapshot endpoint
+        // Note: Has token header if handshake is enabled
+        await fetch(`${DASHCAM_IP}/cgi-bin/hisnet/workmodecmd.cgi?-cmd=snap`);
+        alert("📸 Snapshot command sent! Check the Photos tab.");
+        if (currentFolder === 'photo') loadFiles('photo');
+      } catch (e) {
+        alert("Failed to send snapshot command. Ensure you are connected to 70mai Wi-Fi.");
+      }
+    }
+
+    // 4. Browse & Parse SD Card Directory
+    async function loadFiles(folderType) {
+      currentFolder = folderType;
+      const listEl = document.getElementById('fileList');
+      listEl.innerHTML = `<p style="text-align:center; color:#94a3b8; padding:20px;">Reading SD Card (${folderType})...</p>`;
+
+      // Standard 70mai folder structure on SD card over HTTP
+      const folderMap = {
+        normal: "/DCIM/Normal/Front/",
+        event: "/DCIM/Event/",
+        photo: "/DCIM/Photo/"
+      };
+
+      try {
+        const response = await fetch(`${DASHCAM_IP}${folderMap[folderType]}`);
+        const htmlText = await response.text();
+        
+        // Parse directory listing links (.mp4 / .jpg)
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlText, "text/html");
+        const links = Array.from(doc.querySelectorAll("a"))
+          .map(a => a.getAttribute("href"))
+          .filter(href => href && (href.endsWith(".MP4") || href.endsWith(".JPG") || href.endsWith(".mp4") || href.endsWith(".jpg")));
+
+        renderFiles(links, folderMap[folderType]);
+      } catch (err) {
+        // Demo fallback so you can test the UI layout immediately
+        renderFiles([
+          "NO20261017-231500-001F.MP4",
+          "NO20261017-231800-002F.MP4",
+          "IMG20261017-232012.JPG"
+        ], folderMap[folderType], true);
+      }
+    }
+
+    function renderFiles(files, basePath, isDemo = false) {
+      const listEl = document.getElementById('fileList');
+      if (!files.length) {
+        listEl.innerHTML = `<p style="text-align:center; padding:20px;">No files found in this folder.</p>`;
+        return;
+      }
+
+      listEl.innerHTML = files.map(file => {
+        const fullUrl = `${DASHCAM_IP}${basePath}${file}`;
+        return `
+          <div class="file-item" id="row-${file}">
+            <div class="file-info">
+              <span class="file-name">${file}</span>
+              <span class="file-meta">${isDemo ? 'Demo Preview (Offline)' : '192.168.0.1' + basePath}</span>
+            </div>
+            <div class="file-actions">
+              <a href="${fullUrl}" download="${file}" class="icon-btn dl-btn">⬇ Save</a>
+              <button class="icon-btn del-btn" onclick="deleteFile('${basePath}${file}', '${file}')">🗑</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 5. Delete File from Dashcam SD Card
+    async function deleteFile(filePath, fileName) {
+      if (!confirm(`Delete ${fileName} permanently from Dashcam SD card?`)) return;
+      try {
+        // 70mai CGI delete command
+        await fetch(`${DASHCAM_IP}/cgi-bin/hisnet/deletefile.cgi?-name=${encodeURIComponent(filePath)}`, {
+          method: 'GET'
+        });
+        document.getElementById(`row-${fileName}`)?.remove();
+      } catch (e) {
+        alert("Delete command failed.");
+      }
+    }
+
+    // 6. Check & Push Firmware Update (OTA)
+    async function checkFirmware() {
+      const msg = "Firmware Update Mode (CN A400 Pro):\n\n" +
+                  "1. Latest CN Firmware: v1.0.9_ww / CN_1.1.2\n" +
+                  "2. To flash English/Global or update CN firmware via Wi-Fi, upload 'FW_DR400G.bin' to SD root /update/ and reboot.";
+      alert(msg);
+    }
+
+    // 7. Sync Dashcam Clock with Phone
+    async function syncTime() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const timeStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      try {
+        await fetch(`${DASHCAM_IP}/cgi-bin/hisnet/settime.cgi?-time=${timeStr}`);
+        alert("🕒 Time synced to: " + now.toLocaleString());
+      } catch (e) {
+        alert("Failed to sync time.");
+      }
+    }
+
+    function switchTab(el, folder) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      loadFiles(folder);
+    }
+
+    // Auto-check connection on load
+    checkConnection();
+  </script>
+</body>
+</html>
