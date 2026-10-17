@@ -12,20 +12,44 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+      - name: Generate App Launcher Icon from icon.png
+        run: |
+          if [ -f "icon.png" ]; then
+            echo "Custom icon found! Generating Android mipmaps..."
+            
+            # Create standard Android launcher directories
+            mkdir -p app/src/main/res/mipmap-hdpi
+            mkdir -p app/src/main/res/mipmap-xhdpi
+            mkdir -p app/src/main/res/mipmap-xxhdpi
+            mkdir -p app/src/main/res/mipmap-xxxhdpi
 
-      - name: Setup Project and Compile APK
+            # Use ImageMagick (pre-installed on GitHub Actions) to resize icon.png
+            convert icon.png -resize 72x72   app/src/main/res/mipmap-hdpi/ic_launcher.png
+            convert icon.png -resize 96x96   app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            convert icon.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            convert icon.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            
+            # Also create round icon variants
+            cp app/src/main/res/mipmap-hdpi/ic_launcher.png   app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+            cp app/src/main/res/mipmap-xhdpi/ic_launcher.png   app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+            cp app/src/main/res/mipmap-xxhdpi/ic_launcher.png app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+            cp app/src/main/res/mipmap-xxxhdpi/ic_launcher.png app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+          else
+            echo "No icon.png found, using default Android icon."
+          fi
+
+      - name: Generate Complete Android Project & Compile APK
         run: |
           set -e
 
-          # 1. Create directory structure
+          # 1. Ensure folders exist
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/custom/mai400pro
 
-          # 2. Copy index.html to assets
-          if [ -f "index.html" ]; then
-            cp index.html app/src/main/assets/index.html
-          else
-            echo "<!DOCTYPE html><html><body><h1>70mai Controller</h1></body></html>" > app/src/main/assets/index.html
+          # 2. Locate index.html wherever you uploaded it and copy to assets
+          FOUND_HTML=$(find . -maxdepth 4 -iname "index.html" | head -n 1 || true)
+          if [ -n "$FOUND_HTML" ] && [ "$FOUND_HTML" != "./app/src/main/assets/index.html" ]; then
+            cp "$FOUND_HTML" app/src/main/assets/index.html
           fi
 
           # 3. Write gradle.properties
@@ -252,12 +276,12 @@ jobs:
 
                   cm.requestNetwork(request, object : ConnectivityManager.NetworkCallback() {
                       override fun onAvailable(network: Network) {
-                        super.onAvailable(network)
-                        cm.bindProcessToNetwork(network)
+                          super.onAvailable(network)
+                          cm.bindProcessToNetwork(network)
                       }
                       override fun onLost(network: Network) {
-                        super.onLost(network)
-                        cm.bindProcessToNetwork(null)
+                          super.onLost(network)
+                          cm.bindProcessToNetwork(null)
                       }
                   })
               }
@@ -269,12 +293,13 @@ jobs:
           }
           EOF
 
-          # 9. Download Gradle 8.4 and build APK
+          # 9. Accept Android SDK Licenses & Download Gradle 8.4 directly
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
           curl -sL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
           unzip -q gradle.zip
-          ./gradle-8.4/bin/gradle assembleDebug --no-daemon
+          ./gradle-8.4/bin/gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK Artifact
+      - name: Upload Compiled APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: 70mai-A400Pro-Controller-APK
