@@ -19,12 +19,37 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle & Build Debug APK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Auto-Fix Project Structure & gradle.properties
+        run: |
+          # 1. Create required gradle.properties for AndroidX & ExoPlayer
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          EOF
+
+          # 2. Ensure directories exist
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/java/com/custom/mai400pro
+
+          # 3. If index.html was placed in root by mistake, copy it to assets
+          if [ -f "index.html" ] && [ ! -f "app/src/main/assets/index.html" ]; then
+            cp index.html app/src/main/assets/index.html
+          fi
+
+          # 4. Print current repository files in log for easy debugging
+          echo "=== Current Repository Files ==="
+          find . -maxdepth 5 -not -path '*/.*'
+
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.4'
 
-      - name: Compile APK
+      - name: Compile Debug APK
         run: gradle assembleDebug --stacktrace
 
       - name: Upload Compiled APK Artifact
