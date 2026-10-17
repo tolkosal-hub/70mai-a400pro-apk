@@ -25,9 +25,8 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xxhdpi
           mkdir -p app/src/main/res/mipmap-xxxhdpi
 
-          echo "=== 2. Checking for custom icon ==="
+          echo "=== 2. Applying Custom Icon (if present) ==="
           if [ -f "icon.png" ]; then
-            echo "icon.png found! Copying to mipmap folders..."
             cp icon.png app/src/main/res/mipmap-hdpi/ic_launcher.png
             cp icon.png app/src/main/res/mipmap-hdpi/ic_launcher_round.png
             cp icon.png app/src/main/res/mipmap-xhdpi/ic_launcher.png
@@ -41,14 +40,13 @@ jobs:
             echo "No icon.png found, using standard Android default icon."
           fi
 
-          echo "=== 3. Locating HTML file ==="
-          FOUND_HTML=$(find . -maxdepth 3 -iname "*.html" ! -path "./app/*" | head -n 1 || true)
-          if [ -n "$FOUND_HTML" ]; then
-            cp "$FOUND_HTML" app/src/main/assets/index.html
-            echo "Successfully copied $FOUND_HTML to app/src/main/assets/index.html"
+          echo "=== 3. Copying your index.html into Android Assets ==="
+          if [ -f "index.html" ]; then
+            cp index.html app/src/main/assets/index.html
+            echo "Successfully copied root index.html to Android assets!"
           else
-            echo "<!DOCTYPE html><html><body><h1>70mai Controller</h1></body></html>" > app/src/main/assets/index.html
-            echo "Created default index.html fallback."
+            echo "ERROR: index.html is missing from the repository root folder!"
+            exit 1
           fi
 
           echo "=== 4. Writing Gradle configurations ==="
