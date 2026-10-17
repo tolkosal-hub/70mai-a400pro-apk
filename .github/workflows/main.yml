@@ -13,30 +13,32 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Generate App Launcher Icon from icon.png
+      - name: Generate App Launcher Icons via Python
         run: |
           if [ -f "icon.png" ]; then
-            echo "Custom icon found! Generating Android mipmaps..."
+            echo "Custom icon.png found! Resizing using Python..."
+            python3 -c "
+            from PIL import Image
+            import os
             
-            # Create standard Android launcher directories
-            mkdir -p app/src/main/res/mipmap-hdpi
-            mkdir -p app/src/main/res/mipmap-xhdpi
-            mkdir -p app/src/main/res/mipmap-xxhdpi
-            mkdir -p app/src/main/res/mipmap-xxxhdpi
-
-            # Use ImageMagick (pre-installed on GitHub Actions) to resize icon.png
-            convert icon.png -resize 72x72   app/src/main/res/mipmap-hdpi/ic_launcher.png
-            convert icon.png -resize 96x96   app/src/main/res/mipmap-xhdpi/ic_launcher.png
-            convert icon.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-            convert icon.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            img = Image.open('icon.png')
+            sizes = {
+                'mipmap-hdpi': 72,
+                'mipmap-xhdpi': 96,
+                'mipmap-xxhdpi': 144,
+                'mipmap-xxxhdpi': 192
+            }
             
-            # Also create round icon variants
-            cp app/src/main/res/mipmap-hdpi/ic_launcher.png   app/src/main/res/mipmap-hdpi/ic_launcher_round.png
-            cp app/src/main/res/mipmap-xhdpi/ic_launcher.png   app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
-            cp app/src/main/res/mipmap-xxhdpi/ic_launcher.png app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
-            cp app/src/main/res/mipmap-xxxhdpi/ic_launcher.png app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+            for folder, size in sizes.items():
+                path = os.path.join('app', 'src', 'main', 'res', folder)
+                os.makedirs(path, exist_ok=True)
+                resized = img.resize((size, size), Image.Resampling.LANCZOS)
+                resized.save(os.path.join(path, 'ic_launcher.png'))
+                resized.save(os.path.join(path, 'ic_launcher_round.png'))
+            print('Icons generated successfully!')
+            "
           else
-            echo "No icon.png found, using default Android icon."
+            echo "No icon.png found, skipping custom icon generation."
           fi
 
       - name: Generate Complete Android Project & Compile APK
@@ -47,7 +49,7 @@ jobs:
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/custom/mai400pro
 
-          # 2. Locate index.html wherever you uploaded it and copy to assets
+          # 2. Locate index.html wherever uploaded and copy to assets
           FOUND_HTML=$(find . -maxdepth 4 -iname "index.html" | head -n 1 || true)
           if [ -n "$FOUND_HTML" ] && [ "$FOUND_HTML" != "./app/src/main/assets/index.html" ]; then
             cp "$FOUND_HTML" app/src/main/assets/index.html
@@ -296,8 +298,7 @@ jobs:
           }
           EOF
 
-          # 9. Accept Android SDK Licenses & Download Gradle 8.4 directly
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          # 9. Download Gradle 8.4 and compile APK
           curl -sL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
           unzip -q gradle.zip
           ./gradle-8.4/bin/gradle assembleDebug --no-daemon --stacktrace
