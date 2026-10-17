@@ -12,44 +12,59 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-      - name: Generate App Launcher Icon from icon.png
+
+      - name: Generate App Launcher Icons via Python
         run: |
           if [ -f "icon.png" ]; then
-            echo "Custom icon found! Generating Android mipmaps..."
+            echo "Custom icon.png found! Resizing and creating mipmaps..."
+            python3 -c "
+            from PIL import Image
+            import os
             
-            # Create standard Android launcher directories
-            mkdir -p app/src/main/res/mipmap-hdpi
-            mkdir -p app/src/main/res/mipmap-xhdpi
-            mkdir -p app/src/main/res/mipmap-xxhdpi
-            mkdir -p app/src/main/res/mipmap-xxxhdpi
-
-            # Use ImageMagick (pre-installed on GitHub Actions) to resize icon.png
-            convert icon.png -resize 72x72   app/src/main/res/mipmap-hdpi/ic_launcher.png
-            convert icon.png -resize 96x96   app/src/main/res/mipmap-xhdpi/ic_launcher.png
-            convert icon.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-            convert icon.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-            
-            # Also create round icon variants
-            cp app/src/main/res/mipmap-hdpi/ic_launcher.png   app/src/main/res/mipmap-hdpi/ic_launcher_round.png
-            cp app/src/main/res/mipmap-xhdpi/ic_launcher.png   app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
-            cp app/src/main/res/mipmap-xxhdpi/ic_launcher.png app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
-            cp app/src/main/res/mipmap-xxxhdpi/ic_launcher.png app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+            try:
+                img = Image.open('icon.png')
+                sizes = {
+                    'mipmap-hdpi': 72,
+                    'mipmap-xhdpi': 96,
+                    'mipmap-xxhdpi': 144,
+                    'mipmap-xxxhdpi': 192
+                }
+                for folder, size in sizes.items():
+                    path = os.path.join('app', 'src', 'main', 'res', folder)
+                    os.makedirs(path, exist_ok=True)
+                    resized = img.resize((size, size), Image.Resampling.LANCZOS)
+                    resized.save(os.path.join(path, 'ic_launcher.png'))
+                    resized.save(os.path.join(path, 'ic_launcher_round.png'))
+                print('Icons successfully generated!')
+            except Exception as e:
+                print('Pillow failed or missing, using direct copy fallback:', e)
+                import shutil
+                for folder in ['mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']:
+                    p = os.path.join('app', 'src', 'main', 'res', folder)
+                    os.makedirs(p, exist_ok=True)
+                    shutil.copy('icon.png', os.path.join(p, 'ic_launcher.png'))
+                    shutil.copy('icon.png', os.path.join(p, 'ic_launcher_round.png'))
+            " || echo "Icon generation skipped."
           else
-            echo "No icon.png found, using default Android icon."
+            echo "No icon.png found, using standard Android icon."
           fi
 
-      - name: Generate Complete Android Project & Compile APK
+      - name: Setup Project and Compile APK
         run: |
           set -e
 
-          # 1. Ensure folders exist
+          # 1. Create directory structure
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/custom/mai400pro
 
-          # 2. Locate index.html wherever you uploaded it and copy to assets
-          FOUND_HTML=$(find . -maxdepth 4 -iname "index.html" | head -n 1 || true)
-          if [ -n "$FOUND_HTML" ] && [ "$FOUND_HTML" != "./app/src/main/assets/index.html" ]; then
+          # 2. Automatically locate your HTML file anywhere in repo and copy it as index.html
+          FOUND_HTML=$(find . -maxdepth 3 -iname "*.html" ! -path "./app/*" | head -n 1 || true)
+          if [ -n "$FOUND_HTML" ]; then
             cp "$FOUND_HTML" app/src/main/assets/index.html
+            echo "Successfully copied $FOUND_HTML to app/src/main/assets/index.html"
+          else
+            echo "ERROR: No HTML file found in repository!"
+            exit 1
           fi
 
           # 3. Write gradle.properties
@@ -130,7 +145,7 @@ jobs:
           }
           EOF
 
-          # 7. Write AndroidManifest.xml
+          # 7. Write AndroidManifest.xml with Launcher Icons mapping
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -143,7 +158,9 @@ jobs:
                   android:allowBackup="true"
                   android:label="70mai A400 Pro"
                   android:usesCleartextTraffic="true"
-                  android:theme="@style/Theme.AppCompat.NoActionBar">
+                  android:theme="@style/Theme.AppCompat.NoActionBar"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round">
                   <activity
                       android:name=".MainActivity"
                       android:configChanges="orientation|screenSize"
@@ -276,12 +293,12 @@ jobs:
 
                   cm.requestNetwork(request, object : ConnectivityManager.NetworkCallback() {
                       override fun onAvailable(network: Network) {
-                          super.onAvailable(network)
-                          cm.bindProcessToNetwork(network)
+                        super.onAvailable(network)
+                        cm.bindProcessToNetwork(network)
                       }
                       override fun onLost(network: Network) {
-                          super.onLost(network)
-                          cm.bindProcessToNetwork(null)
+                        super.onLost(network)
+                        cm.bindProcessToNetwork(null)
                       }
                   })
               }
@@ -293,13 +310,12 @@ jobs:
           }
           EOF
 
-          # 9. Accept Android SDK Licenses & Download Gradle 8.4 directly
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          # 9. Download Gradle 8.4 and build APK
           curl -sL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
           unzip -q gradle.zip
-          ./gradle-8.4/bin/gradle assembleDebug --no-daemon --stacktrace
+          ./gradle-8.4/bin/gradle assembleDebug --no-daemon
 
-      - name: Upload Compiled APK Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: 70mai-A400Pro-Controller-APK
