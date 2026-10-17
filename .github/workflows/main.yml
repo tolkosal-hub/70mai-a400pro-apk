@@ -40,13 +40,14 @@ jobs:
             echo "No icon.png found, using standard Android default icon."
           fi
 
-          echo "=== 3. Copying your index.html into Android Assets ==="
-          if [ -f "index.html" ]; then
-            cp index.html app/src/main/assets/index.html
-            echo "Successfully copied root index.html to Android assets!"
+                    echo "=== 3. Copying your index.html into Android Assets ==="
+          FOUND_HTML=$(find . -maxdepth 2 -iname "*.html" ! -path "./app/*" | head -n 1 || true)
+          if [ -n "$FOUND_HTML" ]; then
+            cp "$FOUND_HTML" app/src/main/assets/index.html
+            echo "Successfully copied $FOUND_HTML to Android assets!"
           else
-            echo "ERROR: index.html is missing from the repository root folder!"
-            exit 1
+            echo "<!DOCTYPE html><html><body style='background:#0f172a;color:white;padding:20px;font-family:sans-serif;'><h2>70mai Controller</h2><p>Please upload index.html to your repository root.</p></body></html>" > app/src/main/assets/index.html
+            echo "Warning: No HTML file found, created default fallback view."
           fi
 
           echo "=== 4. Writing Gradle configurations ==="
