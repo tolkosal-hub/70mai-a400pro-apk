@@ -16,7 +16,8 @@ jobs:
       - name: Generate App Launcher Icons via Python
         run: |
           if [ -f "icon.png" ]; then
-            echo "Custom icon.png found! Resizing using Python..."
+            echo "Custom icon.png found! Installing Pillow and resizing..."
+            pip install --quiet Pillow
             python3 -c "
             from PIL import Image
             import os
