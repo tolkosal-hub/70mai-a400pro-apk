@@ -28,14 +28,15 @@ jobs:
           echo "=== 2. Checking for custom icon ==="
           if [ -f "icon.png" ]; then
             echo "icon.png found! Copying to mipmap folders..."
-            python3 -c "
-            import shutil, os
-            for folder in ['mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']:
-                p = os.path.join('app', 'src', 'main', 'res', folder)
-                shutil.copy('icon.png', os.path.join(p, 'ic_launcher.png'))
-                shutil.copy('icon.png', os.path.join(p, 'ic_launcher_round.png'))
-            print('Custom icon applied successfully!')
-            "
+            cp icon.png app/src/main/res/mipmap-hdpi/ic_launcher.png
+            cp icon.png app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+            cp icon.png app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            cp icon.png app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+            cp icon.png app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp icon.png app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+            cp icon.png app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            cp icon.png app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+            echo "Custom icon applied successfully!"
           else
             echo "No icon.png found, using standard Android default icon."
           fi
