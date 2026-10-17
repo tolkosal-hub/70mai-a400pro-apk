@@ -13,57 +13,49 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Generate App Launcher Icons via Python
-        run: |
-          if [ -f "icon.png" ]; then
-            echo "Custom icon.png found! Installing Pillow and resizing..."
-            pip install --quiet Pillow
-            python3 -c "
-            from PIL import Image
-            import os
-            
-            img = Image.open('icon.png')
-            sizes = {
-                'mipmap-hdpi': 72,
-                'mipmap-xhdpi': 96,
-                'mipmap-xxhdpi': 144,
-                'mipmap-xxxhdpi': 192
-            }
-            
-            for folder, size in sizes.items():
-                path = os.path.join('app', 'src', 'main', 'res', folder)
-                os.makedirs(path, exist_ok=True)
-                resized = img.resize((size, size), Image.Resampling.LANCZOS)
-                resized.save(os.path.join(path, 'ic_launcher.png'))
-                resized.save(os.path.join(path, 'ic_launcher_round.png'))
-            print('Icons generated successfully!')
-            "
-          else
-            echo "No icon.png found, skipping custom icon generation."
-          fi
-
       - name: Generate Complete Android Project & Compile APK
         run: |
           set -e
 
-          # 1. Ensure folders exist
+          echo "=== 1. Checking for custom icon ==="
+          if [ -f "icon.png" ]; then
+            echo "icon.png found. Attempting simple copy/generation..."
+            mkdir -p app/src/main/res/mipmap-hdpi
+            mkdir -p app/src/main/res/mipmap-xhdpi
+            mkdir -p app/src/main/res/mipmap-xxhdpi
+            mkdir -p app/src/main/res/mipmap-xxxhdpi
+            
+            # Use Python standard library (no external Pillow needed) to copy icon as fallback
+            python3 -c "
+            import shutil, os
+            for folder in ['mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']:
+                p = os.path.join('app', 'src', 'main', 'res', folder)
+                os.makedirs(p, exist_ok=True)
+                shutil.copy('icon.png', os.path.join(p, 'ic_launcher.png'))
+                shutil.copy('icon.png', os.path.join(p, 'ic_launcher_round.png'))
+            print('Custom icon copied to mipmaps!')
+            " || echo "Icon copy skipped."
+          else
+            echo "No icon.png found, using standard Android default icon."
+          fi
+
+          echo "=== 2. Setting up project folders ==="
           mkdir -p app/src/main/assets
           mkdir -p app/src/main/java/com/custom/mai400pro
 
-          # 2. Locate index.html wherever uploaded and copy to assets
+          # Locate index.html and copy to assets
           FOUND_HTML=$(find . -maxdepth 4 -iname "index.html" | head -n 1 || true)
           if [ -n "$FOUND_HTML" ] && [ "$FOUND_HTML" != "./app/src/main/assets/index.html" ]; then
             cp "$FOUND_HTML" app/src/main/assets/index.html
           fi
 
-          # 3. Write gradle.properties
+          echo "=== 3. Writing Gradle configurations ==="
           cat << 'EOF' > gradle.properties
           org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           android.nonTransitiveRClass=true
           EOF
 
-          # 4. Write settings.gradle
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -83,7 +75,6 @@ jobs:
           include ':app'
           EOF
 
-          # 5. Write root build.gradle
           cat << 'EOF' > build.gradle
           plugins {
               id 'com.android.application' version '8.2.2' apply false
@@ -91,7 +82,6 @@ jobs:
           }
           EOF
 
-          # 6. Write app/build.gradle
           cat << 'EOF' > app/build.gradle
           plugins {
               id 'com.android.application'
@@ -134,7 +124,6 @@ jobs:
           }
           EOF
 
-          # 7. Write AndroidManifest.xml with Launcher Icon mapping
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -163,7 +152,6 @@ jobs:
           </manifest>
           EOF
 
-          # 8. Write MainActivity.kt
           cat << 'EOF' > app/src/main/java/com/custom/mai400pro/MainActivity.kt
           package com.custom.mai400pro
 
@@ -299,7 +287,7 @@ jobs:
           }
           EOF
 
-          # 9. Download Gradle 8.4 and compile APK
+          echo "=== 4. Downloading Gradle and compiling APK ==="
           curl -sL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
           unzip -q gradle.zip
           ./gradle-8.4/bin/gradle assembleDebug --no-daemon --stacktrace
