@@ -13,44 +13,266 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Auto-Fix Project Structure & gradle.properties
+      - name: Generate Complete Android Project & Compile APK
         run: |
-          # 1. Create required gradle.properties for AndroidX & ExoPlayer
+          set -e
+
+          # 1. Ensure folders exist
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/java/com/custom/mai400pro
+
+          # 2. Locate index.html wherever you uploaded it and copy to assets
+          FOUND_HTML=$(find . -maxdepth 4 -iname "index.html" | head -n 1 || true)
+          if [ -n "$FOUND_HTML" ] && [ "$FOUND_HTML" != "./app/src/main/assets/index.html" ]; then
+            cp "$FOUND_HTML" app/src/main/assets/index.html
+          fi
+
+          # 3. Write gradle.properties
           cat << 'EOF' > gradle.properties
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          org.gradle.jvmargs=-Xmx3072m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           android.nonTransitiveRClass=true
           EOF
 
-          # 2. Ensure directories exist
-          mkdir -p app/src/main/assets
-          mkdir -p app/src/main/java/com/custom/mai400pro
+          # 4. Write settings.gradle
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "Mai400ProController"
+          include ':app'
+          EOF
 
-          # 3. If index.html was placed in root by mistake, copy it to assets
-          if [ -f "index.html" ] && [ ! -f "app/src/main/assets/index.html" ]; then
-            cp index.html app/src/main/assets/index.html
-          fi
+          # 5. Write root build.gradle
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+          }
+          EOF
 
-          # 4. Print current repository files in log for easy debugging
-          echo "=== Current Repository Files ==="
-          find . -maxdepth 5 -not -path '*/.*'
+          # 6. Write app/build.gradle
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.4'
+          android {
+              namespace 'com.custom.mai400pro'
+              compileSdk 34
 
-      - name: Compile Debug APK
-        run: gradle assembleDebug --stacktrace
+              defaultConfig {
+                  applicationId "com.custom.mai400pro"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.webkit:webkit:1.10.0'
+              implementation 'androidx.media3:media3-exoplayer:1.2.1'
+              implementation 'androidx.media3:media3-exoplayer-rtsp:1.2.1'
+              implementation 'androidx.media3:media3-ui:1.2.1'
+          }
+          EOF
+
+          # 7. Write AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+              <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="70mai A400 Pro"
+                  android:usesCleartextTraffic="true"
+                  android:theme="@style/Theme.AppCompat.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # 8. Write MainActivity.kt
+          cat << 'EOF' > app/src/main/java/com/custom/mai400pro/MainActivity.kt
+          package com.custom.mai400pro
+
+          import android.annotation.SuppressLint
+          import android.app.AlertDialog
+          import android.app.DownloadManager
+          import android.content.Context
+          import android.net.ConnectivityManager
+          import android.net.Network
+          import android.net.NetworkCapabilities
+          import android.net.NetworkRequest
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.Environment
+          import android.webkit.DownloadListener
+          import android.webkit.JavascriptInterface
+          import android.webkit.URLUtil
+          import android.webkit.WebChromeClient
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import android.widget.FrameLayout
+          import android.widget.Toast
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.media3.common.MediaItem
+          import androidx.media3.exoplayer.ExoPlayer
+          import androidx.media3.exoplayer.rtsp.RtspMediaSource
+          import androidx.media3.ui.PlayerView
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var webView: WebView
+              private var exoPlayer: ExoPlayer? = null
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  bindToDashcamWifi()
+
+                  webView = WebView(this)
+                  setContentView(webView)
+
+                  val settings = webView.settings
+                  settings.javaScriptEnabled = true
+                  settings.domStorageEnabled = true
+                  settings.allowFileAccess = true
+                  settings.allowUniversalAccessFromFileURLs = true
+                  settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+
+                  webView.webViewClient = WebViewClient()
+                  webView.webChromeClient = WebChromeClient()
+
+                  webView.addJavascriptInterface(object {
+                      @JavascriptInterface
+                      fun playRtsp(rtspUrl: String) {
+                          runOnUiThread { showNativeRtspDialog(rtspUrl) }
+                      }
+                  }, "AndroidBridge")
+
+                  webView.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+                      try {
+                          val request = DownloadManager.Request(Uri.parse(url))
+                          val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
+                          request.setTitle(fileName)
+                          request.setDescription("Downloading from 70mai A400 Pro...")
+                          request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                          request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                          val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                          dm.enqueue(request)
+                          Toast.makeText(applicationContext, "Downloading $fileName to Downloads...", Toast.LENGTH_LONG).show()
+                      } catch (e: Exception) {
+                          Toast.makeText(applicationContext, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+                      }
+                  })
+
+                  webView.loadUrl("file:///android_asset/index.html")
+              }
+
+              private fun showNativeRtspDialog(rtspUrl: String) {
+                  val playerView = PlayerView(this)
+                  playerView.layoutParams = FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      700
+                  )
+
+                  exoPlayer = ExoPlayer.Builder(this).build().also { player ->
+                      playerView.player = player
+                      val mediaSource = RtspMediaSource.Factory()
+                          .setForceUseRtpTcp(true)
+                          .createMediaSource(MediaItem.fromUri(rtspUrl))
+                      player.setMediaSource(mediaSource)
+                      player.prepare()
+                      player.playWhenReady = true
+                  }
+
+                  AlertDialog.Builder(this)
+                      .setTitle("70mai A400 Pro Live View")
+                      .setView(playerView)
+                      .setPositiveButton("Close Stream") { dialog, _ ->
+                          exoPlayer?.release()
+                          exoPlayer = null
+                          dialog.dismiss()
+                      }
+                      .setOnCancelListener {
+                          exoPlayer?.release()
+                          exoPlayer = null
+                      }
+                      .show()
+              }
+
+              private fun bindToDashcamWifi() {
+                  val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                  val request = NetworkRequest.Builder()
+                      .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                      .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                      .build()
+
+                  cm.requestNetwork(request, object : ConnectivityManager.NetworkCallback() {
+                      override fun onAvailable(network: Network) {
+                          super.onAvailable(network)
+                          cm.bindProcessToNetwork(network)
+                      }
+                      override fun onLost(network: Network) {
+                          super.onLost(network)
+                          cm.bindProcessToNetwork(null)
+                      }
+                  })
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  exoPlayer?.release()
+              }
+          }
+          EOF
+
+          # 9. Accept Android SDK Licenses & Download Gradle 8.4 directly
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          curl -sL https://services.gradle.org/distributions/gradle-8.4-bin.zip -o gradle.zip
+          unzip -q gradle.zip
+          ./gradle-8.4/bin/gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload Compiled APK Artifact
         uses: actions/upload-artifact@v4
