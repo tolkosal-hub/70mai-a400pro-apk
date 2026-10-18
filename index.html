@@ -145,13 +145,22 @@
       }
     }
 
-    // 2. Launch Native RTSP Player (via Kotlin JavascriptInterface)
-    function launchLiveStream() {
+ // 2. Launch Native RTSP Player with Wake-up Trigger
+    async function launchLiveStream() {
       const rtspUrl = "rtsp://192.168.0.1:554/live";
+      
+      // Wake up the dashcam video encoder/RTSP server via CGI command first
+      try {
+        await fetch(`${DASHCAM_IP}/cgi-bin/hisnet/workmodecmd.cgi?-cmd=startpreview`, { mode: 'no-cors' });
+      } catch (e) {
+        console.log("Preview wake-up packet sent");
+      }
+
+      // Launch native ExoPlayer bridge
       if (window.AndroidBridge && window.AndroidBridge.playRtsp) {
         window.AndroidBridge.playRtsp(rtspUrl);
       } else {
-        alert("Native RTSP Bridge trigger: " + rtspUrl + "\n(In Android Studio, bind this to ExoPlayer)");
+        alert("Native RTSP Bridge trigger: " + rtspUrl);
       }
     }
 
